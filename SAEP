@@ -1,0 +1,113 @@
+create table colaboradores (
+    id serial primary key,
+    nome varchar(100) not null,
+    email varchar(100) unique not null,
+    senha varchar(100) not null,
+    ativo boolean default true
+);
+
+create table categorias (
+    id serial primary key,
+    nome varchar(50) not null
+);
+
+create table tarefas (
+    id serial primary key,
+    titulo varchar(100) not null,
+    descricao text,
+    prazo date not null,
+    status varchar(20) default 'Pendente',
+    id_colaborador integer references colaboradores(id),
+    id_categoria integer references categorias(id),
+    data_criacao timestamp default current_timestamp,
+    check (status in ('Pendente', 'Em andamento', 'Concluída', 'Cancelada'))
+);
+
+create table historico_tarefas (
+    id serial primary key,
+    id_tarefa integer references tarefas(id),
+    acao varchar(100),
+    data_registro timestamp default current_timestamp
+);
+
+insert into colaboradores (nome, email, senha, ativo) values
+('Ana', 'ana@email.com', '123456', true),
+('Bruno', 'bruno@email.com', '123456', true),
+('Carla', 'carla@email.com', '123456', false);
+
+insert into categorias (nome) values
+('Desenvolvimento'),
+('Design'),
+('Planejamento');
+
+create or replace function fn_validar_tarefa()
+returns trigger as $$
+begin
+    if not exists (
+        select 1 from colaboradores
+        where id = new.id_colaborador and ativo = true
+    ) then
+        raise exception 'Colaborador inativo';
+    end if;
+
+    new.data_criacao = now();
+    return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_validar_tarefa
+before insert on tarefas
+for each row execute function fn_validar_tarefa();
+
+create or replace function fn_historico()
+returns trigger as $$
+begin
+    insert into historico_tarefas (id_tarefa, acao)
+    values (new.id, 'Tarefa criada');
+    return new;
+end;
+$$ language plpgsql;
+
+create trigger trg_historico
+after insert on tarefas
+for each row execute function fn_historico();
+
+insert into tarefas (titulo, descricao, prazo, status, id_colaborador, id_categoria) values
+('Criar site', 'Fazer a página inicial', current_date + 3, 'Em andamento', 1, 1),
+('Criar logo', 'Fazer a identidade visual', current_date + 7, 'Pendente', 2, 2),
+('Organizar projeto', 'Planejar as tarefas', current_date + 1, 'Pendente', 1, 3);
+
+create or replace function fn_buscar_colaboradores(termo text)
+returns table (
+    id integer,
+    nome varchar(100),
+    email varchar(100),
+    ativo boolean
+) as $$
+begin
+    return query
+    select c.id, c.nome, c.email, c.ativo
+    from colaboradores c
+    where c.nome ilike '%' || termo || '%'
+    or c.email ilike '%' || termo || '%';
+end;
+$$ language plpgsql;
+
+create or replace view vw_painel_principal as
+select c.nome as colaborador, t.titulo as tarefa,
+       cat.nome as categoria, t.prazo, t.status
+from tarefas t
+join colaboradores c on c.id = t.id_colaborador
+join categorias cat on cat.id = t.id_categoria;
+
+create or replace view vw_cronograma_prazos as
+select t.titulo as tarefa, t.status, t.prazo,
+       t.prazo - current_date as dias_restantes,
+       c.nome as responsavel
+from tarefas t
+join colaboradores c on c.id = t.id_colaborador
+order by t.prazo;
+
+select * from vw_painel_principal;
+select * from vw_cronograma_prazos;
+select * from fn_buscar_colaboradores('ana');
