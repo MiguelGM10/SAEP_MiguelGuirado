@@ -1,92 +1,141 @@
+create table clientes (
+    id_cliente serial primary key,
+    nome varchar(100) not null,
+    email varchar(100) unique not null,
+    cidade varchar(50)
+);
+
+create table setores (
+    id_setor serial primary key,
+    nome varchar(50) not null,
+    andar integer
+);
+
 create table colaboradores (
-    id serial primary key,
+    id_colaborador serial primary key,
     nome varchar(100) not null,
     email varchar(100) unique not null,
     senha varchar(100) not null,
-    ativo boolean default true
+    cargo varchar(50),
+    ativo boolean default true,
+    id_setor integer not null references setores(id_setor)
+);
+
+create table projetos (
+    id_projeto serial primary key,
+    nome varchar(100) not null,
+    descricao text,
+    data_inicio date,
+    id_cliente integer not null references clientes(id_cliente)
 );
 
 create table categorias (
-    id serial primary key,
-    nome varchar(50) not null
+    id_categoria serial primary key,
+    nome varchar(50) not null unique,
+    descricao text
 );
 
 create table tarefas (
-    id serial primary key,
+    id_tarefa serial primary key,
     titulo varchar(100) not null,
     descricao text,
-    prazo date not null,
+    prazo_entrega date not null,
     status varchar(20) default 'Pendente',
-    id_colaborador integer references colaboradores(id),
-    id_categoria integer references categorias(id),
+    id_colaborador integer not null references colaboradores(id_colaborador),
+    id_categoria integer not null references categorias(id_categoria),
+    id_projeto integer not null references projetos(id_projeto),
     data_criacao timestamp default current_timestamp,
     check (status in ('Pendente', 'Em andamento', 'Concluída', 'Cancelada'))
 );
 
 create table historico_tarefas (
-    id serial primary key,
-    id_tarefa integer references tarefas(id),
-    acao varchar(100),
+    id_historico serial primary key,
+    id_tarefa integer not null references tarefas(id_tarefa),
+    acao varchar(100) not null,
     data_registro timestamp default current_timestamp
 );
 
-insert into colaboradores (nome, email, senha, ativo) values
-('Ana', 'ana@email.com', '123456', true),
-('Bruno', 'bruno@email.com', '123456', true),
-('Carla', 'carla@email.com', '123456', false);
+insert into clientes (nome, email, cidade) values
+('Mercado Central Floripa', 'contato@mercadocentral.com', 'Florianópolis'),
+('Clínica Vida Norte', 'administracao@vidanorte.com', 'São José'),
+('Editora Horizonte', 'contato@horizonte.com', 'Palhoça');
 
-insert into categorias (nome) values
-('Desenvolvimento'),
-('Design'),
-('Planejamento');
+insert into setores (nome, andar) values
+('Tecnologia', 2),
+('Design e Comunicação', 3),
+('Gestão de Projetos', 1);
+
+insert into colaboradores (nome, email, senha, cargo, ativo, id_setor) values
+('Marina Oliveira', 'marina@empresa.com', 'marina123', 'Desenvolvedora', true, 1),
+('Rafael Martins', 'rafael@empresa.com', 'rafael123', 'Designer', true, 2),
+('Lucas Ferreira', 'lucas@empresa.com', 'lucas123', 'Gerente', false, 3);
+
+insert into projetos (nome, descricao, data_inicio, id_cliente) values
+('Site do Mercado Central', 'Criação de um site para divulgar produtos e horários', current_date - 10, 1),
+('Sistema da Clínica', 'Organização de consultas e cadastro de pacientes', current_date - 5, 2),
+('Loja virtual da Editora', 'Desenvolvimento de uma loja para venda de livros', current_date, 3);
+
+insert into categorias (nome, descricao) values
+('Programação', 'Desenvolvimento de sistemas e sites'),
+('Identidade Visual', 'Criação de logos e materiais visuais'),
+('Organização', 'Planejamento e acompanhamento de projetos');
 
 create or replace function fn_validar_tarefa()
 returns trigger as $$
 begin
     if not exists (
         select 1 from colaboradores
-        where id = new.id_colaborador and ativo = true
+        where id_colaborador = new.id_colaborador
+        and ativo = true
     ) then
-        raise exception 'Colaborador inativo';
+        raise exception 'O colaborador não está ativo';
     end if;
 
-    new.data_criacao = now();
+    new.data_criacao = current_timestamp;
+
     return new;
 end;
 $$ language plpgsql;
 
 create trigger trg_validar_tarefa
 before insert on tarefas
-for each row execute function fn_validar_tarefa();
+for each row
+execute function fn_validar_tarefa();
 
 create or replace function fn_historico()
 returns trigger as $$
 begin
     insert into historico_tarefas (id_tarefa, acao)
-    values (new.id, 'Tarefa criada');
+    values (new.id_tarefa, 'Tarefa criada');
+
     return new;
 end;
 $$ language plpgsql;
 
 create trigger trg_historico
 after insert on tarefas
-for each row execute function fn_historico();
+for each row
+execute function fn_historico();
 
-insert into tarefas (titulo, descricao, prazo, status, id_colaborador, id_categoria) values
-('Criar site', 'Fazer a página inicial', current_date + 3, 'Em andamento', 1, 1),
-('Criar logo', 'Fazer a identidade visual', current_date + 7, 'Pendente', 2, 2),
-('Organizar projeto', 'Planejar as tarefas', current_date + 1, 'Pendente', 1, 3);
+insert into tarefas
+(titulo, descricao, prazo_entrega, status, id_colaborador, id_categoria, id_projeto)
+values
+('Montar página de produtos', 'Criar a parte onde os clientes podem ver os produtos do mercado', current_date + 3, 'Em andamento', 1, 1, 1),
+
+('Criar logo da clínica', 'Desenvolver uma identidade visual para a clínica', current_date + 7, 'Pendente', 2, 2, 2),
+
+('Organizar catálogo de livros', 'Separar os livros por categoria na loja virtual', current_date + 1, 'Pendente', 1, 3, 3);
 
 create or replace function fn_buscar_colaboradores(termo text)
 returns table (
-    id integer,
+    id_colaborador integer,
     nome varchar(100),
     email varchar(100),
     ativo boolean
 ) as $$
 begin
     return query
-    select c.id, c.nome, c.email, c.ativo
+    select c.id_colaborador, c.nome, c.email, c.ativo
     from colaboradores c
     where c.nome ilike '%' || termo || '%'
     or c.email ilike '%' || termo || '%';
@@ -94,20 +143,34 @@ end;
 $$ language plpgsql;
 
 create or replace view vw_painel_principal as
-select c.nome as colaborador, t.titulo as tarefa,
-       cat.nome as categoria, t.prazo, t.status
+select
+    c.nome as colaborador,
+    t.titulo as tarefa,
+    cat.nome as categoria,
+    t.prazo_entrega,
+    t.status
 from tarefas t
-join colaboradores c on c.id = t.id_colaborador
-join categorias cat on cat.id = t.id_categoria;
+join colaboradores c on c.id_colaborador = t.id_colaborador
+join categorias cat on cat.id_categoria = t.id_categoria;
 
 create or replace view vw_cronograma_prazos as
-select t.titulo as tarefa, t.status, t.prazo,
-       t.prazo - current_date as dias_restantes,
-       c.nome as responsavel
+select
+    t.titulo as tarefa,
+    t.status,
+    t.prazo_entrega,
+    t.prazo_entrega - current_date as dias_restantes,
+    c.nome as responsavel
 from tarefas t
-join colaboradores c on c.id = t.id_colaborador
-order by t.prazo;
+join colaboradores c on c.id_colaborador = t.id_colaborador
+order by t.prazo_entrega asc;
 
+select * from clientes;
+select * from setores;
+select * from colaboradores;
+select * from projetos;
+select * from categorias;
+select * from tarefas;
+select * from historico_tarefas;
 select * from vw_painel_principal;
 select * from vw_cronograma_prazos;
-select * from fn_buscar_colaboradores('ana');
+select * from fn_buscar_colaboradores('Marina');
